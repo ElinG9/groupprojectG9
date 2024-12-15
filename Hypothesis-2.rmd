@@ -1,0 +1,193 @@
+---
+title: "Analysis2"
+output: html_document
+date: "2024-12-13"
+---
+
+```{r}
+
+# Required libraries
+library(ggplot2)
+library(dplyr)
+
+# Read the data files
+nontumor_data <- read.csv("~/R/nontumor_filled.csv")  
+tumor_data <- read.csv("~/R/tumor_filled.csv")        
+
+# Extract expression data and symbols
+nontumor_expression <- nontumor_data[, 4:ncol(nontumor_data)]  # Numerical columns
+tumor_expression <- tumor_data[, 4:ncol(tumor_data)]
+symbols <- nontumor_data$Symbol
+
+# Ensure matching IDs in both datasets
+common_ids <- nontumor_data$ID %in% tumor_data$ID
+nontumor_expression <- nontumor_expression[common_ids, ]
+tumor_expression <- tumor_expression[common_ids, ]
+symbols <- symbols[common_ids]
+
+# Calculate t-statistics and p-values
+t_stats <- apply(cbind(1:nrow(nontumor_expression)), 1, function(i) {
+  t.test(tumor_expression[i, ], nontumor_expression[i, ])$statistic
+})
+p_values <- apply(cbind(1:nrow(nontumor_expression)), 1, function(i) {
+  t.test(tumor_expression[i, ], nontumor_expression[i, ])$p.value
+})
+
+# Adjust p-values (FDR correction)
+adjusted_p_values <- p.adjust(p_values, method = "BH")
+
+# Store results in a dataframe
+results <- data.frame(
+  Symbol = symbols,
+  tStatistic = t_stats,
+  pValue = p_values,
+  adjPValue = adjusted_p_values
+)
+
+# Add classification labels
+results <- results %>%
+  mutate(
+    Regulation = case_when(
+      tStatistic > 0 & adjPValue < 0.05 ~ "Upregulated",
+      tStatistic < 0 & adjPValue < 0.05 ~ "Downregulated",
+      TRUE ~ "Not Significant"
+    )
+  )
+
+# Select the top 10 most significant proteins
+top_10 <- results %>%
+  arrange(adjPValue) %>%
+  slice_head(n = 10)
+
+# Add an indicator for the top 10 proteins in results
+results <- results %>%
+  mutate(IsTop10 = Symbol %in% top_10$Symbol)
+
+# Volcano plot highlighting the top 10 proteins in purple
+volcano_plot <- ggplot(results, aes(x = tStatistic, y = -log10(pValue), color = Regulation)) +
+  geom_point(alpha = 0.6) +
+  geom_point(data = filter(results, IsTop10), aes(x = tStatistic, y = -log10(pValue)), color = "purple", alpha = 0.8) +
+  scale_color_manual(
+    values = c("Upregulated" = "red", "Downregulated" = "blue", "Not Significant" = "gray")
+  ) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black", linewidth = 0.8) +
+  labs(
+    title = "Volcano Plot: Differential Expression Analysis",
+    subtitle = "Top 10 Proteins Highlighted in Purple",
+    x = "t-Statistic (Effect Size)",
+    y = "-Log10(p-value)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.title = element_blank(),
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12, face = "italic")
+  )
+
+# Horizontal bar plot for the top 10 proteins
+top_10 <- top_10 %>%
+  arrange(tStatistic) %>%
+  mutate(Symbol = factor(Symbol, levels = Symbol))  # Set Symbol as a factor for sorted display
+
+bar_plot <- ggplot(top_10, aes(x = tStatistic, y = Symbol)) +
+  geom_bar(stat = "identity", fill = "steelblue", alpha = 0.8) +
+  geom_vline(xintercept = 0, color = "gray", linetype = "dashed") +
+  labs(
+    title = "Top 10 Significant Proteins by t-Statistic",
+    x = "t-Statistic (Effect Size)",
+    y = "Protein Symbol"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    axis.title = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+# Display both plots
+print(volcano_plot)
+print(bar_plot)
+
+# Remove "T" and "P" from the column names in tumor and non-tumor data
+colnames(tumor_data) <- sub("T$", "", colnames(tumor_data))  # Remove "T" at the end
+colnames(nontumor_data) <- sub("P$", "", colnames(nontumor_data))  # Remove "P" at the end
+
+# Random selection of 10 males and 10 females per group
+set.seed(42)  # For reproducibility
+
+# Divide IDs by gender
+male_ids <- metadata %>% filter(Gender == "M") %>% pull(ID)
+female_ids <- metadata %>% filter(Gender == "F") %>% pull(ID)
+
+# Random selection for tumor and non-tumor groups
+male_tumor_ids <- sample(male_ids, 10)      
+female_tumor_ids <- sample(female_ids, 10)  
+male_nontumor_ids <- sample(male_ids, 10)   
+female_nontumor_ids <- sample(female_ids, 10)
+
+# Combine selected IDs
+tumor_ids <- c(male_tumor_ids, female_tumor_ids)
+nontumor_ids <- c(male_nontumor_ids, female_nontumor_ids)
+
+# Select columns based on IDs
+tumor_columns <- intersect(colnames(tumor_data), tumor_ids)
+nontumor_columns <- intersect(colnames(nontumor_data), nontumor_ids)
+
+# Add metadata columns to maintain structure
+tumor_subset <- tumor_data[, c("Symbol", tumor_columns)]
+nontumor_subset <- nontumor_data[, c("Symbol", nontumor_columns)]
+
+# Filter for the 10 most significant proteins
+top_10_proteins <- results %>%
+  arrange(adjPValue) %>%
+  slice_head(n = 10) %>%
+  pull(Symbol)
+
+# Retain only these proteins in the subsets
+tumor_subset <- tumor_subset %>%
+  filter(Symbol %in% top_10_proteins)
+
+nontumor_subset <- nontumor_subset %>%
+  filter(Symbol %in% top_10_proteins)
+
+print(head(tumor_subset))
+print(head(nontumor_subset))
+
+# Add a column indicating the dataset source
+nontumor_subset <- nontumor_subset %>%
+  mutate(Dataset = "Non-Tumor")
+
+tumor_subset <- tumor_subset %>%
+  mutate(Dataset = "Tumor")
+
+# Reshape to long format
+library(tidyr)
+
+nontumor_long <- nontumor_subset %>%
+  pivot_longer(cols = -c(Symbol, Dataset), names_to = "Patient", values_to = "Expression")
+
+tumor_long <- tumor_subset %>%
+  pivot_longer(cols = -c(Symbol, Dataset), names_to = "Patient", values_to = "Expression")
+
+# Combine the datasets
+combined_data <- bind_rows(nontumor_long, tumor_long)
+
+# Reshape to wide format with proteins as columns
+horizontal_data <- combined_data %>%
+  pivot_wider(names_from = Symbol, values_from = Expression)
+
+head(horizontal_data)
+
+# Perform MANOVA
+dependent_vars <- horizontal_data[, !(colnames(horizontal_data) %in% c("Dataset", "Patient"))]
+group <- as.factor(horizontal_data$Dataset)
+manova_model <- manova(as.matrix(dependent_vars) ~ group)
+
+# Summarize results
+summary(manova_model, test = "Pillai")
+summary(manova_model, test = "Wilks")
+summary(manova_model, test = "Hotelling-Lawley")
+summary(manova_model, test = "Roy")
+
+
+```

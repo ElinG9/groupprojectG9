@@ -1,0 +1,77 @@
+---
+title: "Data cleaning and transformation"
+output: html_document
+date: "2024-12-15"
+---
+
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(readxl)
+
+# Read in the data
+abundances <- read_excel("/Users/elinhofman/OneDrive - UGent/Master 1/LSA/LARGE SCALE ANALYSIS/DATA/abundances.xlsx")
+
+# There are many NA's present in this dataset. First we need to make sure that these are seen as "NA". 
+abundances[abundances == "NA"] <- NA
+
+# Nextly, we need to verify that the protein abundances are in the right class (numeric). 
+sapply(abundances, class)
+
+# This is not the wase, so we'll convert the columns to numeric, excluding the first three columns as these are characters. 
+abundances[] <- lapply(1:ncol(abundances), function(i) {
+  if (i <= 3) {
+    # Keep first three columns (e.g., ID, Protein.names, Symbol) as character
+    abundances[[i]]
+  } else {
+    # Convert other columns to numeric
+    as.numeric(as.character(abundances[[i]]))
+  }
+})
+
+# Check column classes to verify if the changes are aplied correctly.
+sapply(abundances, class)
+
+# Save metadata columns, because we will split the dataset in the following step based on tumor and non-tumor tissues, resulting in the loss of the first three columns. 
+metadata_columns <- abundances[, c("ID", "Protein.names", "Symbol")]
+
+# Split into non-tumor and tumor samples
+nontumor <- abundances %>% select(ends_with("P"))
+tumor <- abundances %>% select(ends_with("T"))
+
+# Function to replace NAs with the minimum value per protein (row)
+replace_na_with_min <- function(row) {
+  min_value <- min(row, na.rm = TRUE)
+  row[is.na(row)] <- min_value
+  return(row)
+}
+
+# Apply the function to the tumor and non-tumor datasets
+tumor_filled <- as.data.frame(t(apply(tumor, 1, replace_na_with_min)))
+nontumor_filled <- as.data.frame(t(apply(nontumor, 1, replace_na_with_min)))
+
+# Add metadata back to the datasets to have two complete datasets 
+tumor_filled <- cbind(metadata_columns, tumor_filled)
+nontumor_filled <- cbind(metadata_columns, nontumor_filled)
+
+# Check if there are any remaining NA's
+sum(is.na(tumor_filled))  
+sum(is.na(nontumor_filled))  
+
+# There are still 7 NA's left in each of the datasets. We need to check where these NA's are located. 
+na_positions_tumor <- which(is.na(tumor_filled), arr.ind = TRUE)
+na_positions_nontumor <- which(is.na(nontumor_filled), arr.ind = TRUE)
+
+# The NA's are in both datasets situated in the third column (='SYMBOL'). On these spots, we see that the symbols are not a abbreviation of the protein, but dates, hence why R sees these as NA's. We will replace these dates with the word string 'UNKNOWN'.
+tumor_filled$Symbol[is.na(tumor_filled$Symbol)] <- 'UNKNOWN'
+nontumor_filled$Symbol[is.na(nontumor_filled$Symbol)] <- 'UNKNOWN'
+
+# Check again to verify that all NA's are gone.
+sum(is.na(tumor_filled))  
+sum(is.na(nontumor_filled)) 
+
+# This is the case. We now have the two datasets for tumor and non-tumor tissues. Export the filled datasets to CSV
+write.csv(tumor_filled, "/Users/elinhofman/OneDrive - UGent/Master 1/LSA/LARGE SCALE ANALYSIS/DATA/tumor_filled.csv", row.names = FALSE)
+write.csv(nontumor_filled, "/Users/elinhofman/OneDrive - UGent/Master 1/LSA/LARGE SCALE ANALYSIS/DATA/nontumor_filled.csv", row.names = FALSE)
+```
+

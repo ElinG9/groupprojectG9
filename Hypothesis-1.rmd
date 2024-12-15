@@ -1,0 +1,169 @@
+
+```{r}
+library(readr) 
+library(pheatmap)
+
+metadata <- read_csv("C:/Users/bente/OneDrive/Documenten/BMW-MA1/large scale analysis/large scale analysis_practica/Data/metadata.csv", 
+                 show_col_types = FALSE) 
+
+#min and max age 
+min_leeftijd <- min(metadata$age, na.rm = TRUE)
+print(paste("minimum age =", min_leeftijd))
+
+max_leeftijd <- max(metadata$age, na.rm = TRUE)
+print(paste("maximum age =", max_leeftijd))
+
+```
+```{r}
+#are there NA values?
+na_per_kolom <- colSums(is.na(metadata))
+cat("Number of NAs per column:\n")
+print(na_per_kolom)
+```
+```{r}
+#Sometimes there are multiple tumors per patient. We only want to know the tumor size of the largest tumor per patient, so we created a new column called 'Diameter_of_biggest_tumor'
+
+metadata$`Diameter_of_biggest_tumor` <- sapply(metadata$`Diameter_of_tumor_(cm)`, function(tumors) {
+  tumors <- gsub(",", ".", tumors)
+  tumor_list <- as.numeric(unlist(strsplit(tumors, "\\+")))
+  max(tumor_list, na.rm = TRUE)
+})
+
+head(metadata)
+
+# sapply() applies a function to each value of a vector or list and returns the results as a vector
+# gsub() searches for a pattern and replaces it with something else --> comma to a point
+# strsplit() splits a string based on a delimiter --> the delimiter is '+'
+# unlist() converts a list to a vector
+
+#min and max tumor diameter
+min_diameter <- min(metadata$`Diameter_of_biggest_tumor`, na.rm = TRUE)
+print(paste("minimum tumor diameter =", min_diameter, "cm."))
+
+max_diameter <- max(metadata$`Diameter_of_biggest_tumor`, na.rm = TRUE)
+print(paste("maximum tumor diameter =", max_diameter, "cm."))
+```
+```{r}
+# combined histogram and density plot
+hist(metadata$age, 
+     breaks = 20, 
+     col = rgb(0.1, 0.4, 0.8, 0.4),  
+     main = "Histogram and Density Plot of age", 
+     xlab = "age", 
+     border = "white", 
+     freq = FALSE)  # Relative frequency instead of absolute value 
+
+# density curve 
+lines(density(metadata$age), 
+      col = "blue", 
+      lwd = 2)
+
+# vertical line that indicates the average
+abline(v = mean(metadata$age), 
+       col = "red", 
+       lwd = 2, 
+       lty = 2)  
+
+# legend
+legend("topright", 
+       legend = "Mean", 
+       col = "red", 
+       lty = 2, 
+       lwd = 2)
+
+```
+```{r}
+# combined histogram and density plot
+hist(metadata$Diameter_of_biggest_tumor, 
+     breaks = 20, 
+     col = rgb(0.1, 0.4, 0.8, 0.4),  
+     main = "Histogram and Density Plot of Tumor diameter", 
+     xlab = "Tumor diameter", 
+     border = "white", 
+     freq = FALSE)  # Relative frequency instead of absolute value
+
+# density curve
+lines(density(metadata$Diameter_of_biggest_tumor), 
+      col = "blue", 
+      lwd = 2)  
+
+# vertical line that indicates the average
+abline(v = mean(metadata$Diameter_of_biggest_tumor), 
+       col = "red", 
+       lwd = 2, 
+       lty = 2)  
+
+# Ledgend
+legend("topright", 
+       legend = "Mean", 
+       col = "red", 
+       lty = 2, 
+       lwd = 2)
+```
+```{r}
+# QQ plot to check if age and tumor size are normally distributed
+# QQ-plot for age 
+qqnorm(metadata$age, main = "QQ-plot age") # Creates a QQ plot that compares the distribution of your data with a normal distribution
+qqline(metadata$age, col = "red")
+
+# QQ-plot for tumor diameter 
+qqnorm(metadata$Diameter_of_biggest_tumor, main = "QQ-plot tumor diamter")
+qqline(metadata$Diameter_of_biggest_tumor, col = "red")
+
+```
+```{r}
+#correlation between age and tumor diameter
+cor.test(metadata$age, metadata$Diameter_of_biggest_tumor, method = "pearson")
+
+# cor.test() returns the correlation coefficient, p-value, confidence interval, and test type
+
+```
+```{r}
+# correlation coefficient = 0.0996 --> very weak positive linear relationship
+# p-value = 0.3218 --> the correlation is not statistically significant
+```
+
+```{r}
+# Lineair regression model 
+model <- lm(Diameter_of_biggest_tumor ~ age, data = metadata)
+summary(model)
+```
+
+```{r}
+# visualisation lineair regression model
+
+# Scatterplot with regression line
+plot(metadata$age, metadata$Diameter_of_biggest_tumor, main = "Scatterplot with regression line",
+     xlab = "Age", ylab = "Tumor size (cm)", pch = 16, col = "blue")
+abline(model, col = "red", lwd = 2)  
+
+# Residual plot
+plot(model$fitted.values, model$residuals, main = "Residual Plot",
+     xlab = "Predicted values", ylab = "Residuals", pch = 16)
+abline(h = 0, col = "red", lty = 2)
+
+```
+```{r}
+# The regression line is almost horizontal, indicating that there is little to no strong linear relationship between age and tumor size.
+
+#The points are widely scattered around the line, suggesting high variability in tumor size regardless of age.
+
+# No systematic pattern in the residuals means that your linear model is reasonable and does not miss any complex or non-linear relationship.
+
+#Homoscedasticity means that the spread of errors is consistent, which indicates that your model is reliable for making predictions across the entire range of the data
+```
+
+
+```{r}
+# Checking the normality of the residuals --> This is an important assumption for the validity of p-values and confidence intervals in regression analysis
+# Shapiro-Wilk test
+shapiro.test(model$residuals)
+
+# QQ-plot for residuals
+qqnorm(model$residuals)
+qqline(model$residuals, col = "red")
+```
+
+```{r}
+# The residuals appear to be normally distributed based on the Shapiro-Wilk test, as the p-value is greater than the significance level of 0.05
+```
